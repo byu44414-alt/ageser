@@ -15,40 +15,37 @@ async function kirim(env, text) {
   } catch {}
 }
 
-// Cari depth di harga tertentu + cari harga di depth target
+// HITUNG DARI ASKS - karena kita JUAL USDC
 async function hitungPosisi(env, myPrice, targetDepth) {
-  const url = `${HORIZON}/order_book?selling_asset_type=native&buying_asset_type=credit_alphanum4&buying_asset_code=USDC&buying_asset_issuer=${USDC_ISSUER}&limit=200`;
+  const url = `${HORIZON}/order_book?selling_asset_type=credit_alphanum4&selling_asset_code=USDC&selling_asset_issuer=${USDC_ISSUER}&buying_asset_type=native&limit=200`;
   const r = await fetch(url, { cf: { cacheTtl: 0 } });
   if (!r.ok) throw new Error("horizon error " + r.status);
   const book = await r.json();
-  const bids = book?.bids || [];
-  if (!bids.length) throw new Error("bids kosong");
+  const asks = book?.asks || [];
+  if (!asks.length) throw new Error("asks kosong");
 
   let depth = 0;
   let depthAtMyPrice = null;
   let pnewAtTarget = null;
-  let top_bid = n7(parseFloat(bids[0].price_r.d) / parseFloat(bids[0].price_r.n));
+  // asks urut dari harga TERENDAH ke tertinggi, itu yang bener buat penjual
+  let top_ask = n7(parseFloat(asks[0].price_r.n) / parseFloat(asks[0].price_r.d));
 
-  for (const v of bids) {
-    const bid = parseFloat(v.price_r.d) / parseFloat(v.price_r.n);
-    const bam = parseFloat(v.amount);
-    depth += bam * bid;
+  for (const v of asks) {
+    const askPrice = parseFloat(v.price_r.n) / parseFloat(v.price_r.d);
+    const amountUSDC = parseFloat(v.amount); // amount di asks = jumlah USDC yang dijual
+    depth += amountUSDC; // depth di sini = total USDC, sama kayak kolom di spreadsheet lu
 
-    // Depth di harga offer kita
-    // bids diurutkan dari harga tertinggi ke terendah
-    // kalo bid sudah <= myPrice, berarti kita sudah lewat posisi kita
-    if (depthAtMyPrice === null && bid <= parseFloat(myPrice)) {
+    if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) {
       depthAtMyPrice = depth;
     }
-    // Harga untuk target depth (tengah-tengah BAWAH-ATAS)
     if (pnewAtTarget === null && depth > targetDepth) {
-      pnewAtTarget = n7(bid + 0.0000003);
+      pnewAtTarget = n7(askPrice - 0.0000003); // mundur dikit biar di depan orang itu
     }
   }
-  if (depthAtMyPrice === null) depthAtMyPrice = depth; // offer kita paling belakang
-  if (!pnewAtTarget) pnewAtTarget = top_bid;
+  if (depthAtMyPrice === null) depthAtMyPrice = depth;
+  if (!pnewAtTarget) pnewAtTarget = top_ask;
 
-  return { depthTotal: Math.floor(depth), depthAtMyPrice: Math.floor(depthAtMyPrice), pnewAtTarget, top_bid };
+  return { depthTotal: Math.floor(depth), depthAtMyPrice: Math.floor(depthAtMyPrice), pnewAtTarget, top_ask };
 }
 
 async function doGeser(env, batasBawah, batasAtas) {
@@ -71,18 +68,15 @@ async function doGeser(env, batasBawah, batasAtas) {
   const amount = my.amount;
   const offerId = Number(my.id);
 
-  // TARGET = tengah-tengah, misal 100rb-200rb -> target 150rb
   const targetDepth = (batasBawah + batasAtas) / 2;
-  const { depthTotal, depthAtMyPrice, pnewAtTarget, top_bid } = await hitungPosisi(env, myPrice, targetDepth);
+  const { depthTotal, depthAtMyPrice, pnewAtTarget, top_ask } = await hitungPosisi(env, myPrice, targetDepth);
 
-  // === INI INTINYA ===
-  // Posisi kita masih di antara 100rb - 200rb, DIEM
   if (depthAtMyPrice >= batasBawah && depthAtMyPrice <= batasAtas) {
     return {
       ok: true, geser: false,
       reason: `posisi udah pas di depth ${depthAtMyPrice}, masih di antara ${batasBawah}-${batasAtas}, diem`,
       my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice,
-      depth_total: depthTotal, top_bid, batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth
+      depth_total: depthTotal, top_ask, batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth
     };
   }
 
@@ -122,12 +116,10 @@ export default {
     if (url.pathname === "/rate") {
       try {
         const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
-        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "200000");
-        // /rate tanpa myPrice, kasih gambaran pnew di target
+        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "300000");
         const targetDepth = (batasBawah + batasAtas) / 2;
-        // pake myPrice = 0 biar depthAtMyPrice = total, tapi kita mau pnew aja
-        const { depthTotal, pnewAtTarget, top_bid } = await hitungPosisi(env, "999999", targetDepth);
-        return new Response(JSON.stringify({ ok: true, pair: "USDC-XLM", batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth, top_bid, depth_total: depthTotal, pnew_di_target: pnewAtTarget }), { headers });
+        const { depthTotal, pnewAtTarget, top_ask } = await hitungPosisi(env, "999999", targetDepth);
+        return new Response(JSON.stringify({ ok: true, pair: "USDC-XLM", batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth, top_ask, depth_total: depthTotal, pnew_di_target: pnewAtTarget }), { headers });
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers });
       }
@@ -139,7 +131,7 @@ export default {
       }
       try {
         const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
-        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "200000");
+        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "300000");
         const result = await doGeser(env, batasBawah, batasAtas);
         return new Response(JSON.stringify(result), { headers });
       } catch (e) {
