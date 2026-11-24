@@ -2,5 +2,8 @@
   "name": "stellar-rate-worker",
   "version": "1.0.0",
   "type": "module",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0"
+  }
 }
