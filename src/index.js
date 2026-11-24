@@ -5,6 +5,7 @@ const USDC = new StellarSdk.Asset("USDC", USDC_ISSUER);
 const XLM = StellarSdk.Asset.native();
 function n7(v) { return Number(v).toFixed(7); }
 async function kirim(env, text) {
+  return;
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   try { await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${env.TELEGRAM_CHAT_ID}&text=${encodeURIComponent(text + " SCN")}`); } catch {}
 }
