@@ -3,4 +3,5 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-BAWAH = "25000000"
+BAWAH = "100000"
+ATAS = "300000"
