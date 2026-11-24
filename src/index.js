@@ -53,8 +53,9 @@ async function doGeser(env, batasDepth) {
       .addMemo(StellarSdk.Memo.text("stellar.my.id")).setTimeout(100).build();
     tx.sign(kp);
     const res = await server.submitTransaction(tx);
-    await kirim(env, `GESER ${myPrice} -> ${pnew} | ${amount} | ${res.hash}`);
-    return { ok: true, geser: true, from: myPrice, pnew, amount, hash: res.hash, depth };
+    //await kirim(env, `GESER ${myPrice} -> ${pnew} | ${amount} | ${res.hash}`);
+    //return { ok: true, geser: true, from: myPrice, pnew, amount, hash: res.hash, depth };
+    return { ok: true, geser: true, from: myPrice, pnew, amount, hash: "-", depth };
   } catch (e) {
     await kirim(env, "gagal update posisi");
     return { ok: false, geser: false, error: String(e), pnew, my_price: myPrice };
