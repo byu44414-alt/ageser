@@ -8,55 +8,54 @@ const XLM = StellarSdk.Asset.native();
 function n7(v) { return Number(v).toFixed(7); }
 
 async function kirim(env, text) {
-  return
+  return;
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   try {
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${env.TELEGRAM_CHAT_ID}&text=${encodeURIComponent(text + " SCN")}`);
   } catch {}
 }
 
-async function hitungPnew(env, batasAtas) {
+// Cari depth di harga tertentu + cari harga di depth target
+async function hitungPosisi(env, myPrice, targetDepth) {
   const url = `${HORIZON}/order_book?selling_asset_type=native&buying_asset_type=credit_alphanum4&buying_asset_code=USDC&buying_asset_issuer=${USDC_ISSUER}&limit=200`;
   const r = await fetch(url, { cf: { cacheTtl: 0 } });
   if (!r.ok) throw new Error("horizon error " + r.status);
   const book = await r.json();
   const bids = book?.bids || [];
   if (!bids.length) throw new Error("bids kosong");
+
   let depth = 0;
-  let found = null;
+  let depthAtMyPrice = null;
+  let pnewAtTarget = null;
+  let top_bid = n7(parseFloat(bids[0].price_r.d) / parseFloat(bids[0].price_r.n));
+
   for (const v of bids) {
     const bid = parseFloat(v.price_r.d) / parseFloat(v.price_r.n);
     const bam = parseFloat(v.amount);
     depth += bam * bid;
-    if (depth > batasAtas) {
-      found = { bid: n7(bid), pnew: n7(bid + 0.0000003), depth_at_hit: depth };
-      break;
+
+    // Depth di harga offer kita
+    // bids diurutkan dari harga tertinggi ke terendah
+    // kalo bid sudah <= myPrice, berarti kita sudah lewat posisi kita
+    if (depthAtMyPrice === null && bid <= parseFloat(myPrice)) {
+      depthAtMyPrice = depth;
+    }
+    // Harga untuk target depth (tengah-tengah BAWAH-ATAS)
+    if (pnewAtTarget === null && depth > targetDepth) {
+      pnewAtTarget = n7(bid + 0.0000003);
     }
   }
-  return { depth, found, top_bid: n7(parseFloat(bids[0].price_r.d) / parseFloat(bids[0].price_r.n)) };
+  if (depthAtMyPrice === null) depthAtMyPrice = depth; // offer kita paling belakang
+  if (!pnewAtTarget) pnewAtTarget = top_bid;
+
+  return { depthTotal: Math.floor(depth), depthAtMyPrice: Math.floor(depthAtMyPrice), pnewAtTarget, top_bid };
 }
 
 async function doGeser(env, batasBawah, batasAtas) {
   const server = new StellarSdk.Horizon.Server(HORIZON);
   const kp = StellarSdk.Keypair.fromSecret(env.SECRET_KEY);
   const pub = kp.publicKey();
-  const { depth, found, top_bid } = await hitungPnew(env, batasAtas);
 
-  // DEADBAND: kalo depth masih di antara BAWAH - ATAS, diem
-  if (depth < batasAtas) {
-    return {
-      ok: true,
-      geser: false,
-      reason: `depth ${Math.floor(depth)} masih di antara ${batasBawah}-${batasAtas}, diem dulu`,
-      depth: Math.floor(depth),
-      top_bid,
-      batas_bawah: batasBawah,
-      batas_atas: batasAtas
-    };
-  }
-  if (!found) return { ok: true, geser: false, reason: "depth belum tembus", depth, top_bid };
-
-  const pnew = found.pnew;
   const accRes = await fetch(`${HORIZON}/accounts/${pub}/offers`);
   const acc = await accRes.json();
   const offers = acc?._embedded?.records || [];
@@ -66,16 +65,33 @@ async function doGeser(env, batasBawah, batasAtas) {
     const b = o.buying.asset_code || "XLM";
     if (s === "USDC" && b === "XLM") { my = o; break; }
   }
-  if (!my) return { ok: true, geser: false, reason: "tidak ada offer USDC->XLM", pnew, depth };
+  if (!my) return { ok: true, geser: false, reason: "tidak ada offer USDC->XLM" };
+
   const myPrice = n7(my.price);
   const amount = my.amount;
   const offerId = Number(my.id);
-  if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth };
 
-  // CEGAH GESER KECIL: selisih < 0.0000010 skip
+  // TARGET = tengah-tengah, misal 100rb-200rb -> target 150rb
+  const targetDepth = (batasBawah + batasAtas) / 2;
+  const { depthTotal, depthAtMyPrice, pnewAtTarget, top_bid } = await hitungPosisi(env, myPrice, targetDepth);
+
+  // === INI INTINYA ===
+  // Posisi kita masih di antara 100rb - 200rb, DIEM
+  if (depthAtMyPrice >= batasBawah && depthAtMyPrice <= batasAtas) {
+    return {
+      ok: true, geser: false,
+      reason: `posisi udah pas di depth ${depthAtMyPrice}, masih di antara ${batasBawah}-${batasAtas}, diem`,
+      my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice,
+      depth_total: depthTotal, top_bid, batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth
+    };
+  }
+
+  const pnew = pnewAtTarget;
+  if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
+
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) {
-    return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan, tunggu`, pnew, my_price: myPrice, depth };
+    return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   }
 
   try {
@@ -85,8 +101,8 @@ async function doGeser(env, batasBawah, batasAtas) {
       .addMemo(StellarSdk.Memo.text("stellar.my.id")).setTimeout(100).build();
     tx.sign(kp);
     const res = await server.submitTransaction(tx);
-    await kirim(env, `GESER ${myPrice} -> ${pnew} | ${amount} | ${res.hash}`);
-    return { ok: true, geser: true, from: myPrice, pnew, amount, hash: res.hash, depth };
+    await kirim(env, `GESER ${myPrice} -> ${pnew} | depth saya ${depthAtMyPrice} -> target ${targetDepth} | ${amount} | ${res.hash}`);
+    return { ok: true, geser: true, from: myPrice, pnew, amount, hash: res.hash, depth_di_posisi_saya: depthAtMyPrice, target: targetDepth };
   } catch (e) {
     await kirim(env, "gagal update posisi");
     return { ok: false, geser: false, error: String(e), pnew, my_price: myPrice };
@@ -105,10 +121,13 @@ export default {
 
     if (url.pathname === "/rate") {
       try {
-        const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "1000000");
-        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "2000000");
-        const { depth: d, found, top_bid } = await hitungPnew(env, batasAtas);
-        return new Response(JSON.stringify({ ok: true, pair: "USDC-XLM", batas_bawah: batasBawah, batas_atas: batasAtas, top_bid, depth_total: Math.floor(d), target: found }), { headers });
+        const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
+        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "200000");
+        // /rate tanpa myPrice, kasih gambaran pnew di target
+        const targetDepth = (batasBawah + batasAtas) / 2;
+        // pake myPrice = 0 biar depthAtMyPrice = total, tapi kita mau pnew aja
+        const { depthTotal, pnewAtTarget, top_bid } = await hitungPosisi(env, "999999", targetDepth);
+        return new Response(JSON.stringify({ ok: true, pair: "USDC-XLM", batas_bawah: batasBawah, batas_atas: batasAtas, target: targetDepth, top_bid, depth_total: depthTotal, pnew_di_target: pnewAtTarget }), { headers });
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers });
       }
@@ -119,8 +138,8 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), { status: 401, headers });
       }
       try {
-        const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "1000000");
-        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "2000000");
+        const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
+        const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "200000");
         const result = await doGeser(env, batasBawah, batasAtas);
         return new Response(JSON.stringify(result), { headers });
       } catch (e) {
