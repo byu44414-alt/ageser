@@ -42,8 +42,12 @@ async function hitungPosisi(env, myPrice, targetDepth) {
       pnewAtTarget = n7(askPrice - 0.0000003); // mundur dikit biar di depan orang itu
     }
   }
-  if (depthAtMyPrice === null) depthAtMyPrice = depth;
-  if (!pnewAtTarget) pnewAtTarget = top_ask;
+  //if (depthAtMyPrice === null) depthAtMyPrice = depth;
+  //if (!pnewAtTarget) pnewAtTarget = top_ask;
+  // Kalo harga kita gak ketemu di 200 asks pertama,
+// berarti posisi kita JAUH di belakang, anggap depth = gede banget, WAJIB GESER
+if (depthAtMyPrice === null) depthAtMyPrice = 999999999;
+if (!pnewAtTarget) pnewAtTarget = top_ask;
 
   return { depthTotal: Math.floor(depth), depthAtMyPrice: Math.floor(depthAtMyPrice), pnewAtTarget, top_ask };
 }
