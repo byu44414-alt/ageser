@@ -5,7 +5,7 @@ const USDC = new StellarSdk.Asset("USDC", USDC_ISSUER);
 const XLM = StellarSdk.Asset.native();
 function n7(v) { return Number(v).toFixed(7); }
 async function kirim(env, text) {
-  return;
+  return
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   try { await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${env.TELEGRAM_CHAT_ID}&text=${encodeURIComponent(text + " SCN")}`); } catch {}
 }
@@ -19,15 +19,14 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   if (!asks.length) throw new Error("asks kosong");
 
   // === 1. DETEKSI PAUS DULU ===
-  // Cari sell tunggal yang valuenya > ATAS (300rb)
-  let paus = null; // { price, value, depthSebelumPaus }
+  let paus = null;
   let depthJalan = 0;
   for (const v of asks) {
     const askPrice = parseFloat(v.price_r.n) / parseFloat(v.price_r.d);
     const singleValue = parseFloat(v.amount) * askPrice;
     if (singleValue > batasAtas) {
       paus = { price: askPrice, value: Math.floor(singleValue), depthSebelum: Math.floor(depthJalan) };
-      break; // ambil paus pertama (paling depan) aja
+      break;
     }
     depthJalan += singleValue;
   }
@@ -38,9 +37,9 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   let mode = "NORMAL";
   if (paus) {
     mode = "TEMP_PAUS";
-    // Ide lu: batas temp = total sell paus + 1000
-    batasBawahEff = paus.value;
-    batasAtasEff = paus.value + 1000;
+    // FIX: harus + depthSebelum, kalo enggak bot geser terus ke atas
+    batasBawahEff = paus.depthSebelum + paus.value;
+    batasAtasEff = paus.depthSebelum + paus.value + 1000;
   }
   const targetDepth = (batasBawahEff + batasAtasEff) / 2;
 
@@ -51,9 +50,8 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   let top_ask = n7(parseFloat(asks[0].price_r.n) / parseFloat(asks[0].price_r.d));
   let last_ask_price = top_ask;
 
-  // Kalo mode TEMP_PAUS, pnew harus di BELAKANG paus, bukan di depan
+  // Kalo mode TEMP_PAUS, pnew harus di BELAKANG paus
   if (paus) {
-    // Harga di belakang paus = harga paus + dikit
     pnewAtTarget = n7(paus.price + 0.0000003);
   }
 
@@ -63,7 +61,6 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
     const singleValue = parseFloat(v.amount) * askPrice;
     depth += singleValue;
     if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) depthAtMyPrice = depth;
-    // Kalo NORMAL, cari pnew kayak biasa
     if (mode === "NORMAL" && pnewAtTarget === null && depth > targetDepth) {
       pnewAtTarget = n7(askPrice - 0.0000003);
     }
