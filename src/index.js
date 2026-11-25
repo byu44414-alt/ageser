@@ -18,14 +18,21 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   const asks = book?.asks || [];
   if (!asks.length) throw new Error("asks kosong");
 
-  // === 1. DETEKSI PAUS DULU ===
+  // === 1. DETEKSI PAUS, DENGAN ATURAN BARU LU ===
+  // Paus HANYA berlaku kalo:
+  // - single value > ATAS (300rb)
+  // - DAN posisi paus mulai di depth di atas BAWAH (100rb)
+  // - DAN posisi paus masih di bawah ATAS (300rb)
+  // Kalo paus di depth 873rb, IGNORE, balik ke NORMAL
   let paus = null;
   let depthJalan = 0;
   for (const v of asks) {
     const askPrice = parseFloat(v.price_r.n) / parseFloat(v.price_r.d);
     const singleValue = parseFloat(v.amount) * askPrice;
-    if (singleValue > batasAtas) {
-      paus = { price: askPrice, value: Math.floor(singleValue), depthSebelum: Math.floor(depthJalan) };
+    const depthSebelum = Math.floor(depthJalan);
+    const depthSesudah = Math.floor(depthJalan + singleValue);
+    if (singleValue > batasAtas && depthSebelum >= batasBawah && depthSebelum < batasAtas) {
+      paus = { price: askPrice, value: Math.floor(singleValue), depthSebelum, depthSesudah };
       break;
     }
     depthJalan += singleValue;
@@ -37,7 +44,6 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   let mode = "NORMAL";
   if (paus) {
     mode = "TEMP_PAUS";
-    // FIX: harus + depthSebelum, kalo enggak bot geser terus ke atas
     batasBawahEff = paus.depthSebelum + paus.value;
     batasAtasEff = paus.depthSebelum + paus.value + 1000;
   }
@@ -50,7 +56,6 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   let top_ask = n7(parseFloat(asks[0].price_r.n) / parseFloat(asks[0].price_r.d));
   let last_ask_price = top_ask;
 
-  // Kalo mode TEMP_PAUS, pnew harus di BELAKANG paus
   if (paus) {
     pnewAtTarget = n7(paus.price + 0.0000003);
   }
