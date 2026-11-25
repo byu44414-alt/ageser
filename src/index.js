@@ -49,7 +49,6 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
 }
 
 async function doGeser(env, batasBawah, batasAtas) {
-  return
   const server = new StellarSdk.Horizon.Server(HORIZON);
   const kp = StellarSdk.Keypair.fromSecret(env.SECRET_KEY);
   const pub = kp.publicKey();
@@ -83,7 +82,9 @@ async function doGeser(env, batasBawah, batasAtas) {
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
-
+  
+  return { ok: "test"};
+  
   try {
     const sourceAccount = await server.loadAccount(pub);
     // UBAH: selling AQUA, buying USDC
