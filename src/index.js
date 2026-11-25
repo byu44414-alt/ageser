@@ -2,7 +2,9 @@ import * as StellarSdk from "@stellar/stellar-sdk";
 const HORIZON = "https://horizon.stellar.org";
 const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 const USDC = new StellarSdk.Asset("USDC", USDC_ISSUER);
-const XLM = StellarSdk.Asset.native();
+const AQUA_ISSUER = "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA";
+const AQUA = new StellarSdk.Asset("AQUA", AQUA_ISSUER);
+
 function n7(v) { return Number(v).toFixed(7); }
 async function kirim(env, text) {
   return
@@ -11,7 +13,8 @@ async function kirim(env, text) {
 }
 
 async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
-  const url = `${HORIZON}/order_book?selling_asset_type=credit_alphanum4&selling_asset_code=USDC&selling_asset_issuer=${USDC_ISSUER}&buying_asset_type=native&limit=200`;
+  // UBAH: selling AQUA, buying USDC
+  const url = `${HORIZON}/order_book?selling_asset_type=credit_alphanum4&selling_asset_code=AQUA&selling_asset_issuer=${AQUA_ISSUER}&buying_asset_type=credit_alphanum4&buying_asset_code=USDC&buying_asset_issuer=${USDC_ISSUER}&limit=200`;
   const r = await fetch(url, { cf: { cacheTtl: 0 } });
   if (!r.ok) throw new Error("horizon error " + r.status);
   const book = await r.json();
@@ -46,6 +49,7 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
 }
 
 async function doGeser(env, batasBawah, batasAtas) {
+  return
   const server = new StellarSdk.Horizon.Server(HORIZON);
   const kp = StellarSdk.Keypair.fromSecret(env.SECRET_KEY);
   const pub = kp.publicKey();
@@ -56,9 +60,10 @@ async function doGeser(env, batasBawah, batasAtas) {
   for (const o of offers) {
     const s = o.selling.asset_code || "XLM";
     const b = o.buying.asset_code || "XLM";
-    if (s === "USDC" && b === "XLM") { my = o; break; }
+    // UBAH: cari offer AQUA -> USDC
+    if (s === "AQUA" && b === "USDC") { my = o; break; }
   }
-  if (!my) return { ok: true, geser: false, reason: "tidak ada offer USDC->XLM" };
+  if (!my) return { ok: true, geser: false, reason: "tidak ada offer AQUA->USDC" };
   const myPrice = n7(my.price);
   const amount = my.amount;
   const offerId = Number(my.id);
@@ -69,17 +74,23 @@ async function doGeser(env, batasBawah, batasAtas) {
     return { ok: true, geser: false, reason: `ok depth ${depthAtMyPrice}, masih aman, diem`, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice, depth_total: depthTotal, top_ask, batas_bawah: batas_bawah_eff, batas_atas: batas_atas_eff, target };
   }
 
-  const pnew = pnewAtTarget;
+  let pnew = pnewAtTarget;
+  // Clamp bawah buat AQUA/USDC - harga AQUA jangan sampe di bawah ini
+  if (parseFloat(pnew) < 0.00021) {
+    pnew = n7(0.00021);
+  }
+
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
 
   try {
     const sourceAccount = await server.loadAccount(pub);
-    const tx = new StellarSdk.TransactionBuilder(sourceAccount, { fee: "10000", networkPassphrase: StellarSdk.Networks.PUBLIC }).addOperation(StellarSdk.Operation.manageSellOffer({ selling: USDC, buying: XLM, amount: amount, price: pnew, offerId: offerId })).addMemo(StellarSdk.Memo.text("stellar.my.id")).setTimeout(100).build();
+    // UBAH: selling AQUA, buying USDC
+    const tx = new StellarSdk.TransactionBuilder(sourceAccount, { fee: "10000", networkPassphrase: StellarSdk.Networks.PUBLIC }).addOperation(StellarSdk.Operation.manageSellOffer({ selling: AQUA, buying: USDC, amount: amount, price: pnew, offerId: offerId })).addMemo(StellarSdk.Memo.text("stellar.my.id")).setTimeout(100).build();
     tx.sign(kp);
     const res = await server.submitTransaction(tx);
-    await kirim(env, `GESER ${myPrice} -> ${pnew} | depth saya ${depthAtMyPrice} -> target ${target} | ${amount} | ${res.hash}`);
+    await kirim(env, `GESER AQUA/USDC ${myPrice} -> ${pnew} | depth saya ${depthAtMyPrice} -> target ${target} | ${amount} | ${res.hash}`);
     return { ok: true, geser: true, from: myPrice, pnew, amount, hash: res.hash, depth_di_posisi_saya: depthAtMyPrice, target };
   } catch (e) {
     await kirim(env, "gagal update posisi");
@@ -92,13 +103,13 @@ export default {
     const url = new URL(request.url);
     const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" };
     const key = url.searchParams.get("key") || request.headers.get("x-worker-key");
-    if (url.pathname === "/" || url.pathname === "/health") return new Response(JSON.stringify({ ok: true, service: "stellar-geser-worker", pair: "USDC-XLM" }), { headers });
+    if (url.pathname === "/" || url.pathname === "/health") return new Response(JSON.stringify({ ok: true, service: "stellar-geser-worker", pair: "AQUA-USDC" }), { headers });
     if (url.pathname === "/rate") {
       try {
         const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
         const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "300000");
         const d = await hitungPosisi(env, "999999", batasBawah, batasAtas);
-        return new Response(JSON.stringify({ ok: true, pair: "USDC-XLM", batas_bawah: batasBawah, batas_atas: batasAtas, target: d.target, top_ask: d.top_ask, depth_total: d.depthTotal, pnew_di_target: d.pnewAtTarget }), { headers });
+        return new Response(JSON.stringify({ ok: true, pair: "AQUA-USDC", batas_bawah: batasBawah, batas_atas: batasAtas, target: d.target, top_ask: d.top_ask, depth_total: d.depthTotal, pnew_di_target: d.pnewAtTarget }), { headers });
       } catch (e) { return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers }); }
     }
     if (url.pathname === "/geser") {
