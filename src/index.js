@@ -66,7 +66,7 @@ async function doGeser(env, batasBawah, batasAtas) {
   const { depthTotal, depthAtMyPrice, pnewAtTarget, top_ask, batas_bawah_eff, batas_atas_eff, target } = await hitungPosisi(env, myPrice, batasBawah, batasAtas);
 
   if (depthAtMyPrice >= batas_bawah_eff && depthAtMyPrice <= batas_atas_eff) {
-    return { ok: true, geser: false, reason: `posisi udah pas di depth ${depthAtMyPrice}, masih di antara ${batas_bawah_eff}-${batas_atas_eff}, diem`, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice, depth_total: depthTotal, top_ask, batas_bawah: batas_bawah_eff, batas_atas: batas_atas_eff, target };
+    return { ok: true, geser: false, reason: `ok depth ${depthAtMyPrice}, masih aman, diem`, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice, depth_total: depthTotal, top_ask, batas_bawah: batas_bawah_eff, batas_atas: batas_atas_eff, target };
   }
 
   const pnew = pnewAtTarget;
