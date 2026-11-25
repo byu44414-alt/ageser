@@ -24,11 +24,13 @@ async function hitungPosisi(env, myPrice, targetDepth) {
   for (const v of asks) {
     const askPrice = parseFloat(v.price_r.n) / parseFloat(v.price_r.d);
     last_ask_price = n7(askPrice);
-    depth += parseFloat(v.amount);
+    const amountUSDC = parseFloat(v.amount);
+    // FIX: depth = amount * price, sama kayak spreadsheet lu
+    // amount USDC * harga XLM per USDC = depth dalam XLM
+    depth += amountUSDC * askPrice;
     if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) depthAtMyPrice = depth;
     if (pnewAtTarget === null && depth > targetDepth) pnewAtTarget = n7(askPrice - 0.0000003);
   }
-  // FIX UTAMA: kalo harga kita gak ketemu di 200 asks, berarti JAUH di belakang
   if (depthAtMyPrice === null) depthAtMyPrice = 999999999;
   if (!pnewAtTarget) pnewAtTarget = top_ask;
   return { depthTotal: Math.floor(depth), depthAtMyPrice: Math.floor(depthAtMyPrice), pnewAtTarget, top_ask, last_ask_price, ketemu: depthAtMyPrice !== 999999999 };
