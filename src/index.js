@@ -5,6 +5,10 @@ const USDC = new StellarSdk.Asset("USDC", USDC_ISSUER);
 const AQUA_ISSUER = "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA";
 const AQUA = new StellarSdk.Asset("AQUA", AQUA_ISSUER);
 
+// CONFIG: naik berapa point dari harga tempat target tercapai
+const NAIK_POINT = 3;
+const TICK = 0.0000001;
+
 function n7(v) { return Number(v).toFixed(7); }
 async function kirim(env, text) {
   return
@@ -21,7 +25,7 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
   const asks = book?.asks || [];
   if (!asks.length) throw new Error("asks kosong");
 
-  const targetDepth = (batasBawah + batasAtas) / 2;
+  const targetDepth = batasBawah;
   let depth = 0;
   let depthAtMyPrice = null;
   let pnewAtTarget = null;
@@ -34,10 +38,14 @@ async function hitungPosisi(env, myPrice, batasBawah, batasAtas) {
     const singleValue = parseFloat(v.amount) * askPrice;
     depth += singleValue;
     if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) depthAtMyPrice = depth;
-    if (pnewAtTarget === null && depth > targetDepth) pnewAtTarget = n7(askPrice - 0.0000003);
+    // FIX: target 2500 tercapai di 0.0002150 depth 2775 -> pnew = 0.0002150 + 0.0000003 = 0.0002153
+    if (pnewAtTarget === null && depth >= targetDepth) {
+      pnewAtTarget = n7(askPrice + (NAIK_POINT * TICK));
+      break;
+    }
   }
   if (depthAtMyPrice === null) depthAtMyPrice = 999999999;
-  if (!pnewAtTarget) pnewAtTarget = top_ask;
+  if (!pnewAtTarget) pnewAtTarget = n7(parseFloat(last_ask_price) + (NAIK_POINT * TICK));
 
   return {
     depthTotal: Math.floor(depth),
@@ -82,9 +90,6 @@ async function doGeser(env, batasBawah, batasAtas) {
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
-  
-  //return { ok: "test"};
-  //return { ok: true, geser: true, from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   
   try {
     const sourceAccount = await server.loadAccount(pub);
