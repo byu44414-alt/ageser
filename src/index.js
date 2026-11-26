@@ -83,7 +83,8 @@ async function doGeser(env, batasBawah, batasAtas) {
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   
-  return { ok: "test"};
+  //return { ok: "test"};
+  return { ok: true, geser: true, from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   
   try {
     const sourceAccount = await server.loadAccount(pub);
