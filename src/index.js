@@ -76,7 +76,7 @@ async function doGeser(env, batasBawah, batasAtas) {
   let pnew = pnewAtTarget;
   // Clamp bawah buat AQUA/USDC - harga AQUA jangan sampe di bawah ini
   if (parseFloat(pnew) < 0.00021) {
-    return { ok: true, geser: false, reason: "batas aman 0.00021" from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
+    return { ok: true, geser: false, reason: "batas aman 0.00021", from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   }
 
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
