@@ -76,7 +76,7 @@ async function doGeser(env, batasBawah, batasAtas) {
   let pnew = pnewAtTarget;
   // Clamp bawah buat AQUA/USDC - harga AQUA jangan sampe di bawah ini
   if (parseFloat(pnew) < 0.00021) {
-    pnew = n7(0.00021);
+    return { ok: true, geser: false, reason: "batas aman 0.00021" from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   }
 
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
@@ -84,7 +84,7 @@ async function doGeser(env, batasBawah, batasAtas) {
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   
   //return { ok: "test"};
-  return { ok: true, geser: true, from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
+  //return { ok: true, geser: true, from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   
   try {
     const sourceAccount = await server.loadAccount(pub);
