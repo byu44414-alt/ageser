@@ -33,7 +33,52 @@ async function getOffersAQUA_USDC() {
   return offers;
 }
 
+
 async function hitungPosisi(offers, myPrice, batasBawah, batasAtas) {
+  if (!offers.length) throw new Error("offers kosong");
+  const targetDepth = batasBawah;
+  let depth = 0;
+  let depthAtMyPrice = null;
+  let pnewAtTarget = null;
+  let top_ask = n7(parseFloat(offers[0].price));
+  let last_ask_price = top_ask;
+
+  for (const o of offers) {
+    const askPrice = parseFloat(o.price);
+    last_ask_price = n7(askPrice);
+    const singleValue = parseFloat(o.amount) * askPrice;
+    depth += singleValue;
+
+    // 1. Cari depth di posisi lu
+    if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) {
+      depthAtMyPrice = depth;
+    }
+
+    // 2. Cari pnew di target - JANGAN BREAK, cuma catet sekali aja
+    if (pnewAtTarget === null && depth >= targetDepth) {
+      pnewAtTarget = n7(askPrice + (NAIK_POINT * TICK));
+      // JANGAN break di sini, biar depthAtMyPrice tetep keisi
+      // kalo 2-2nya udah ketemu baru boleh break
+      if (depthAtMyPrice !== null) break;
+    }
+
+    // Kalo depthAtMyPrice udah ketemu dan pnew udah ketemu, baru break
+    if (depthAtMyPrice !== null && pnewAtTarget !== null) break;
+  }
+
+  if (depthAtMyPrice === null) depthAtMyPrice = 999999999;
+  if (!pnewAtTarget) pnewAtTarget = n7(parseFloat(last_ask_price) + (NAIK_POINT * TICK));
+
+  return {
+    depthTotal: Math.floor(depth),
+    depthAtMyPrice: Math.floor(depthAtMyPrice),
+    pnewAtTarget, top_ask, last_ask_price,
+    ketemu: depthAtMyPrice !== 999999999,
+    batas_bawah_eff: batasBawah, batas_atas_eff: batasAtas, target: Math.floor(targetDepth)
+  };
+}
+
+async function oldhitungPosisi(offers, myPrice, batasBawah, batasAtas) {
   if (!offers.length) throw new Error("offers kosong");
   const targetDepth = batasBawah;
   let depth = 0;
