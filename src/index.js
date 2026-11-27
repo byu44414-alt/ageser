@@ -5,25 +5,30 @@ const USDC = new StellarSdk.Asset("USDC", USDC_ISSUER);
 const AQUA_ISSUER = "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA";
 const AQUA = new StellarSdk.Asset("AQUA", AQUA_ISSUER);
 
+// CONFIG: naik berapa point dari harga tempat target tercapai
 const NAIK_POINT = 3;
 const TICK = 0.0000001;
+
+// WALLET SELLER / PEMILIK OFFER - INI YANG DIBANDINGIN DENGAN seller DI /offers
+// Jangan pake pub dari SECRET_KEY buat compare, karena bisa beda wallet
+const MY_WALLET = "GA5P3IUWKQ7PXDADJY47OJ73QJCX66O3EDJNCB3XFO7JA4LAFE5HESCN";
 
 function n7(v) { return Number(v).toFixed(7); }
 
 async function kirim(env, text) {
-  return
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   try { await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${env.TELEGRAM_CHAT_ID}&text=${encodeURIComponent(text + " SCN")}`); } catch {}
 }
 
-// BARU: 1x GET aja, gantiin order_book + accounts/offers
+// 1x GET SAJA - SUMBER: LINK LU PERSIS
 async function getOffersAQUA_USDC() {
-  const url = `${HORIZON}/offers?selling_asset_type=credit_alphanum4&selling_asset_code=AQUA&selling_asset_issuer=${AQUA_ISSUER}&buying_asset_type=credit_alphanum4&buying_asset_code=USDC&buying_asset_issuer=${USDC_ISSUER}&limit=200&order=asc`;
+  const url = "https://horizon.stellar.org/offers?buying_asset_type=credit_alphanum4&buying_asset_code=USDC&buying_asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN&selling_asset_type=credit_alphanum4&selling_asset_code=AQUA&selling_asset_issuer=GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA&order=desc&limit=200";
   const r = await fetch(url, { cf: { cacheTtl: 0 } });
   if (!r.ok) throw new Error("horizon error " + r.status);
   const j = await r.json();
   let offers = j?._embedded?.records || [];
-  // PENTING: /offers order=asc itu urut ID, bukan harga. Harus di-sort biar depth bener
+  // PENTING: order=desc itu urut ID (paling baru), bukan urut harga.
+  // Harus di-sort by price biar depth bener.
   offers.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
   return offers;
 }
@@ -44,6 +49,7 @@ async function hitungPosisi(offers, myPrice, batasBawah, batasAtas) {
     const singleValue = parseFloat(o.amount) * askPrice;
     depth += singleValue;
     if (depthAtMyPrice === null && askPrice >= parseFloat(myPrice)) depthAtMyPrice = depth;
+    // FIX: target 2500 tercapai di 0.0002150 depth 2775 -> pnew = 0.0002150 + 0.0000003 = 0.0002153
     if (pnewAtTarget === null && depth >= targetDepth) {
       pnewAtTarget = n7(askPrice + (NAIK_POINT * TICK));
       break;
@@ -66,15 +72,18 @@ async function doGeser(env, batasBawah, batasAtas) {
   const kp = StellarSdk.Keypair.fromSecret(env.SECRET_KEY);
   const pub = kp.publicKey();
 
-  // 1x GET DOANG DI SINI, gak ada GET kedua lagi
+  // Wallet buat compare = MY_WALLET, bisa di-override dari env kalo perlu
+  const myWallet = env.MY_WALLET || MY_WALLET;
+
+  // 1x GET DOANG DI SINI
   const offers = await getOffersAQUA_USDC();
 
-  // Cari offer lu dari data yang sama, filter seller == pub
+  // Cari offer lu dari data yang sama, filter seller == MY_WALLET
   let my = null;
   for (const o of offers) {
-    if (o.seller === pub && o.selling.asset_code === "AQUA" && o.buying.asset_code === "USDC") { my = o; break; }
+    if (o.seller === myWallet && o.selling.asset_code === "AQUA" && o.buying.asset_code === "USDC") { my = o; break; }
   }
-  if (!my) return { ok: true, geser: false, reason: "tidak ada offer AQUA->USDC" };
+  if (!my) return { ok: true, geser: false, reason: "tidak ada offer AQUA->USDC", my_wallet: myWallet, signer_pub: pub, total_offers: offers.length };
   const myPrice = n7(my.price);
   const amount = my.amount;
   const offerId = Number(my.id);
@@ -86,15 +95,18 @@ async function doGeser(env, batasBawah, batasAtas) {
   }
 
   let pnew = pnewAtTarget;
+  // Clamp bawah buat AQUA/USDC - harga AQUA jangan sampe di bawah ini
   if (parseFloat(pnew) < 0.00021) {
     return { ok: true, geser: false, reason: "batas aman 0.00021", from: myPrice, pnew, amount, depth_di_posisi_saya: depthAtMyPrice, target };
   }
+
   if (pnew === myPrice) return { ok: true, geser: false, reason: "harga sama", pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
   const selisih = Math.abs(parseFloat(pnew) - parseFloat(myPrice));
   if (selisih < 0.0000010) return { ok: true, geser: false, reason: `selisih cuma ${selisih.toFixed(7)}, kekecilan`, pnew, my_price: myPrice, depth_di_posisi_saya: depthAtMyPrice };
-
+  
   try {
     const sourceAccount = await server.loadAccount(pub);
+    // selling AQUA, buying USDC
     const tx = new StellarSdk.TransactionBuilder(sourceAccount, { fee: "10000", networkPassphrase: StellarSdk.Networks.PUBLIC }).addOperation(StellarSdk.Operation.manageSellOffer({ selling: AQUA, buying: USDC, amount: amount, price: pnew, offerId: offerId })).addMemo(StellarSdk.Memo.text("stellar.my.id")).setTimeout(100).build();
     tx.sign(kp);
     const res = await server.submitTransaction(tx);
@@ -116,7 +128,7 @@ export default {
       try {
         const batasBawah = parseFloat(url.searchParams.get("bawah") || env.BAWAH || "100000");
         const batasAtas = parseFloat(url.searchParams.get("atas") || url.searchParams.get("depth") || env.ATAS || "300000");
-        const offers = await getOffersAQUA_USDC(); // 1x GET juga di sini
+        const offers = await getOffersAQUA_USDC();
         const d = await hitungPosisi(offers, "999999", batasBawah, batasAtas);
         return new Response(JSON.stringify({ ok: true, pair: "AQUA-USDC", batas_bawah: batasBawah, batas_atas: batasAtas, target: d.target, top_ask: d.top_ask, depth_total: d.depthTotal, pnew_di_target: d.pnewAtTarget }), { headers });
       } catch (e) { return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers }); }
